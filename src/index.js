@@ -307,12 +307,14 @@ function upsertTicketFromChannel(channel) {
       firstResponderId: null,
       responders: {},
       replyMessageIds: [],
+      replies: [],
     });
 
   ticket.channelName = channel.name || ticket.channelName;
   ticket.createdAt = ticket.createdAt || createdAt;
   if (!ticket.responders) ticket.responders = {};
   if (!ticket.replyMessageIds) ticket.replyMessageIds = [];
+  if (!ticket.replies) ticket.replies = [];
   return ticket;
 }
 
@@ -337,8 +339,12 @@ function recordReply(message) {
   const channel = message.channel;
   const ticket = state.tickets[message.channelId] || upsertTicketFromChannel(channel);
 
-  if (ticket.replyMessageIds.includes(message.id)) return false;
-
+  const hasMessageId = ticket.replyMessageIds.includes(message.id);
+  const hasReplyDetail = (ticket.replies || []).some(
+    (reply) => reply.messageId === message.id,
+  );
+  if (hasMessageId && hasReplyDetail) return false;
+  
   const at = new Date(message.createdTimestamp || Date.now()).toISOString();
   const userId = message.author.id;
   const displayName =
@@ -347,8 +353,10 @@ function recordReply(message) {
     message.author.username ||
     userId;
 
-  ticket.replyMessageIds.push(message.id);
-  ticket.replyCount += 1;
+  if (!hasMessageId) {
+    ticket.replyMessageIds.push(message.id);
+    ticket.replyCount += 1;
+  }
 
   const responder =
     ticket.responders[userId] ||
@@ -363,13 +371,26 @@ function recordReply(message) {
 
   responder.username = message.author.username || responder.username;
   responder.displayName = displayName;
-  responder.replyCount += 1;
+  if (!hasMessageId) {
+    responder.replyCount += 1;
+  }
   responder.firstReplyAt = minIso(responder.firstReplyAt, at);
   responder.lastReplyAt = maxIso(responder.lastReplyAt, at);
 
   if (!ticket.firstReplyAt || at < ticket.firstReplyAt) {
     ticket.firstReplyAt = at;
     ticket.firstResponderId = userId;
+  }
+
+  if (!hasReplyDetail) {
+    ticket.replies.push({
+      messageId: message.id,
+      channelId: message.channelId,
+      at,
+      userId,
+      username: message.author.username || "",
+      displayName,
+    });
   }
 
   return true;
@@ -434,68 +455,89 @@ function formatTicketCloseSummary(ticket) {
 }
 
 function formatWeeklyReport(week) {
-  const tickets = Object.values(state.tickets).filter(
-    (ticket) => ticket.status === "closed" && closedWeekForTicket(ticket) === week,
-  );
+  const tickets = Object.values(state.tickets);
+  const weeklyReplies = [];
 
   const adminStats = new Map();
-  let totalReplies = 0;
-  let ticketsWithReplies = 0;
   let firstResponseTotalMs = 0;
   let firstResponseCount = 0;
 
   for (const ticket of tickets) {
-    totalReplies += ticket.replyCount || 0;
-    if ((ticket.replyCount || 0) > 0) ticketsWithReplies += 1;
+    for (const reply of ticket.replies || []) {
+      if (weekKey(new Date(reply.at), config.timezone) !== week) continue;
+      weeklyReplies.push({ ticket, reply });
 
-    const firstResponseMs = ticket.firstReplyAt
-      ? new Date(ticket.firstReplyAt).getTime() - new Date(ticket.createdAt).getTime()
-      : null;
-
-    if (firstResponseMs != null && firstResponseMs >= 0) {
-      firstResponseTotalMs += firstResponseMs;
-      firstResponseCount += 1;
-    }
-
-    for (const responder of Object.values(ticket.responders || {})) {
       const stat =
-        adminStats.get(responder.userId) ||
+        adminStats.get(reply.userId) ||
         {
-          userId: responder.userId,
-          displayName: responder.displayName || responder.userId,
-          participatedTickets: 0,
+          userId: reply.userId,
+          displayName: reply.displayName || reply.userId,
+          ticketIds: new Set(),
           replyCount: 0,
           firstResponseCount: 0,
           firstResponseTotalMs: 0,
         };
 
-      stat.displayName = responder.displayName || stat.displayName;
-      stat.participatedTickets += 1;
-      stat.replyCount += responder.replyCount || 0;
+      stat.displayName = reply.displayName || stat.displayName;
+      stat.ticketIds.add(ticket.channelId);
+      stat.replyCount += 1;
+      adminStats.set(reply.userId, stat);
+    }
 
-      if (ticket.firstResponderId === responder.userId && firstResponseMs != null) {
+    const firstResponseMs = ticket.firstReplyAt
+      ? new Date(ticket.firstReplyAt).getTime() - new Date(ticket.createdAt).getTime()
+      : null;
+
+    if (
+      ticket.firstReplyAt &&
+      ticket.firstResponderId &&
+      weekKey(new Date(ticket.firstReplyAt), config.timezone) === week &&
+      firstResponseMs != null &&
+      firstResponseMs >= 0
+    ) {
+      const responder = ticket.responders?.[ticket.firstResponderId];
+      const stat =
+        adminStats.get(ticket.firstResponderId) ||
+        {
+          userId: ticket.firstResponderId,
+          displayName:
+            responder?.displayName || responder?.username || ticket.firstResponderId,
+          ticketIds: new Set(),
+          replyCount: 0,
+          firstResponseCount: 0,
+          firstResponseTotalMs: 0,
+        };
+
+      const hasWeeklyReply = weeklyReplies.some(
+        ({ ticket: replyTicket, reply }) =>
+          replyTicket.channelId === ticket.channelId &&
+          reply.userId === ticket.firstResponderId,
+      );
+      if (hasWeeklyReply) {
         stat.firstResponseCount += 1;
         stat.firstResponseTotalMs += Math.max(0, firstResponseMs);
+        firstResponseCount += 1;
+        firstResponseTotalMs += firstResponseMs;
       }
 
-      adminStats.set(responder.userId, stat);
+      adminStats.set(ticket.firstResponderId, stat);
     }
   }
 
   const rows = [...adminStats.values()].sort((a, b) => {
-    if (b.participatedTickets !== a.participatedTickets) {
-      return b.participatedTickets - a.participatedTickets;
+    if (b.replyCount !== a.replyCount) {
+      return b.replyCount - a.replyCount;
     }
-    return b.replyCount - a.replyCount;
+    return b.ticketIds.size - a.ticketIds.size;
   });
 
   const table = rows.length
     ? renderTable(
-        ["管理员", "参与工单", "回复数", "首响次数", "平均首响"],
+        ["管理员", "回复数", "涉及工单", "首响次数", "平均首响"],
         rows.map((stat) => [
           truncate(stat.displayName, 18),
-          String(stat.participatedTickets),
           String(stat.replyCount),
+          String(stat.ticketIds.size),
           String(stat.firstResponseCount),
           stat.firstResponseCount
             ? formatDuration(stat.firstResponseTotalMs / stat.firstResponseCount)
@@ -507,18 +549,21 @@ function formatWeeklyReport(week) {
   const avgFirstResponse = firstResponseCount
     ? formatDuration(firstResponseTotalMs / firstResponseCount)
     : "-";
+  const ticketCount = new Set(
+    weeklyReplies.map(({ ticket }) => ticket.channelId),
+  ).size;
 
   return [
     `## ${week} Modmail 管理员回复周报`,
     `范围：${weekRangeLabel(week)}`,
     "",
-    "统计口径：按工单关闭时间归属周。频道删除即视为工单关闭。",
+    "统计口径：按管理员回复消息发送时间归属周。不要求工单关闭。",
     "",
-    `关闭工单：${tickets.length}`,
-    `有管理员回复工单：${ticketsWithReplies}`,
-    `无管理员回复即关闭：${tickets.length - ticketsWithReplies}`,
-    `管理员回复总数：${totalReplies}`,
-    `整体平均首响：${avgFirstResponse}`,
+    `本周回复总数：${weeklyReplies.length}`,
+    `涉及工单：${ticketCount}`,
+    `活跃管理员：${rows.length}`,
+    `本周首响次数：${firstResponseCount}`,
+    `本周平均首响：${avgFirstResponse}`,
     "",
     "```text",
     table,
