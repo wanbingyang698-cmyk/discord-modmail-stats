@@ -1,0 +1,18 @@
+{
+  "name": "discord-modmail-stats",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Weekly Discord Modmail admin reply stats, grouped by ticket close time.",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node --check src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3"
+  }
+}

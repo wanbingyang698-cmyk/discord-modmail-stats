@@ -1,0 +1,26 @@
+services:
+  - type: worker
+    name: discord-modmail-stats
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: GUILD_ID
+        value: "1128257488375005215"
+      - key: MODMAIL_CATEGORY_ID
+        value: "1463907222034845858"
+      - key: REPORT_CHANNEL_ID
+        value: "1526483819664904293"
+      - key: MODMAIL_BOT_ID
+        value: "575252669443211264"
+      - key: TIMEZONE
+        value: Asia/Shanghai
+      - key: STORE_PATH
+        value: /var/data/modmail-stats.json
+      - key: DISCORD_TOKEN
+        sync: false
+    disk:
+      name: modmail-stats-data
+      mountPath: /var/data
+      sizeGB: 1
