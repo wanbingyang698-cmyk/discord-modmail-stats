@@ -30,6 +30,16 @@ const config = {
   weeklyReportWeekday: parseInt(process.env.WEEKLY_REPORT_WEEKDAY || "1", 10),
   weeklyReportHour: parseInt(process.env.WEEKLY_REPORT_HOUR || "0", 10),
   weeklyReportMinute: parseInt(process.env.WEEKLY_REPORT_MINUTE || "5", 10),
+  checkinChannelId: process.env.CHECKIN_CHANNEL_ID || "",
+  checkinFormUrl: process.env.CHECKIN_FORM_URL || "",
+  checkinCooldownSeconds: parseInt(
+    process.env.CHECKIN_COOLDOWN_SECONDS || "60",
+    10,
+  ),
+  checkinDeleteTriggerMessage: parseBool(
+    process.env.CHECKIN_DELETE_TRIGGER_MESSAGE,
+    false,
+  ),
 };
 
 const client = new Client({
@@ -43,6 +53,7 @@ const client = new Client({
 
 let state = loadState(config.storePath);
 let saveTimer = null;
+const checkinCooldowns = new Map();
 
 process.on("uncaughtException", (error) => {
   logFatal(error);
@@ -56,6 +67,9 @@ process.on("unhandledRejection", (error) => {
 
 client.once("ready", async () => {
   console.log(`[ready] logged in as ${client.user.tag}`);
+  if (config.checkinChannelId && config.checkinFormUrl) {
+    console.log(`[checkin] enabled in channel ${config.checkinChannelId}`);
+  }
   await syncOpenTickets();
   await checkWeeklyReport();
   setInterval(checkWeeklyReport, 60_000);
@@ -73,6 +87,7 @@ client.on("channelCreate", async (channel) => {
 client.on("messageCreate", async (message) => {
   if (!message.guild || message.guild.id !== config.guildId) return;
 
+  if (await handleCheckinAutoReply(message)) return;
   if (await handleReportCommand(message)) return;
   if (!shouldCountMessage(message)) return;
 
@@ -390,6 +405,46 @@ function recordReply(message) {
       userId,
       username: message.author.username || "",
       displayName,
+    });
+  }
+
+  return true;
+}
+
+async function handleCheckinAutoReply(message) {
+  if (!config.checkinChannelId || !config.checkinFormUrl) return false;
+  if (message.channelId !== config.checkinChannelId) return false;
+  if (message.author?.bot) return true;
+
+  const cooldownKey = `${message.channelId}:${message.author.id}`;
+  const now = Date.now();
+  const cooldownUntil = checkinCooldowns.get(cooldownKey) || 0;
+  if (config.checkinCooldownSeconds > 0 && now < cooldownUntil) {
+    return true;
+  }
+
+  checkinCooldowns.set(
+    cooldownKey,
+    now + Math.max(0, config.checkinCooldownSeconds) * 1000,
+  );
+
+  const content = [
+    `<@${message.author.id}> 这是版主签到表单：`,
+    config.checkinFormUrl,
+  ].join("\n");
+
+  await message.reply({
+    content,
+    allowedMentions: {
+      users: [message.author.id],
+      roles: [],
+      parse: [],
+    },
+  });
+
+  if (config.checkinDeleteTriggerMessage) {
+    await message.delete().catch((error) => {
+      console.warn("[checkin] failed to delete trigger message", error);
     });
   }
 

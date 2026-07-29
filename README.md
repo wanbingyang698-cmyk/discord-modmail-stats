@@ -118,6 +118,34 @@ IGNORE_MESSAGE_PREFIXES=!,//,.
 SEND_CLOSE_LOG=true
 ```
 
+## 签到表单自动回复
+
+机器人也可以替代 MEE6，在指定签到频道里自动公开回复 Google 表单链接。
+
+当前配置：
+
+```env
+CHECKIN_CHANNEL_ID=1514203944501510295
+CHECKIN_FORM_URL=https://forms.gle/wxhXhZpzUseBjeDcA
+CHECKIN_COOLDOWN_SECONDS=60
+CHECKIN_DELETE_TRIGGER_MESSAGE=false
+```
+
+效果：
+
+- 版主在 `CHECKIN_CHANNEL_ID` 频道里发送任意文字、表情或消息。
+- Heartopia 会公开回复这位版主，并发送签到表单链接。
+- 不会删除版主原消息。
+- 同一个人 60 秒内重复发送，不会重复触发，避免刷屏。
+
+机器人需要在这个签到频道拥有：
+
+- 查看频道
+- 读取消息
+- 发送消息
+
+如果以后把 `CHECKIN_DELETE_TRIGGER_MESSAGE` 改成 `true`，还需要给机器人“管理消息”权限。
+
 ## 注意事项
 
 机器人只能统计它在线期间看到的消息。已删除的工单频道无法补历史数据。
