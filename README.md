@@ -128,6 +128,8 @@ SEND_CLOSE_LOG=true
 CHECKIN_CHANNEL_ID=1514203944501510295
 CHECKIN_FORM_URL=https://forms.gle/wxhXhZpzUseBjeDcA
 CHECKIN_REPLY_MESSAGE=这是版主签到表单：\n{form_url}
+CHECKIN_ONCE_PER_DAY=true
+CHECKIN_DAILY_TIMEZONE=Asia/Shanghai
 CHECKIN_COOLDOWN_SECONDS=60
 CHECKIN_DELETE_TRIGGER_MESSAGE=false
 ```
@@ -136,8 +138,11 @@ CHECKIN_DELETE_TRIGGER_MESSAGE=false
 
 - 版主在 `CHECKIN_CHANNEL_ID` 频道里发送任意文字、表情或消息。
 - Heartopia 会在频道里发送一条普通消息，不会 @ 触发的人。
+- 默认每天只发送一次签到提示，日期按 `CHECKIN_DAILY_TIMEZONE=Asia/Shanghai` 计算。
+- 当天第一次有人在签到频道发消息时触发；同一天后续再发消息不会触发。
+- 到第二天 00:00（UTC+8）后，会重新允许触发一次。
 - 不会删除版主原消息。
-- 同一个人 60 秒内重复发送，不会重复触发，避免刷屏。
+- 如果关闭每日限制，才会使用 `CHECKIN_COOLDOWN_SECONDS` 作为短冷却，避免刷屏。
 
 默认回复文案可以通过 `CHECKIN_REPLY_MESSAGE` 修改。支持这些占位符：
 

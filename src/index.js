@@ -41,6 +41,11 @@ const config = {
     false,
   ),
   checkinReplyMessage: process.env.CHECKIN_REPLY_MESSAGE || "",
+  checkinOncePerDay: parseBool(process.env.CHECKIN_ONCE_PER_DAY, true),
+  checkinDailyTimeZone:
+    process.env.CHECKIN_DAILY_TIMEZONE ||
+    process.env.TIMEZONE ||
+    "Asia/Shanghai",
 };
 
 const client = new Client({
@@ -198,6 +203,8 @@ function loadState(storePath) {
       tickets: {},
       sentReports: {},
       checkinReplyMessage: "",
+      checkinLastReplyDate: "",
+      checkinLastReplyAt: "",
     };
   }
 
@@ -208,6 +215,8 @@ function loadState(storePath) {
     tickets: parsed.tickets || {},
     sentReports: parsed.sentReports || {},
     checkinReplyMessage: parsed.checkinReplyMessage || "",
+    checkinLastReplyDate: parsed.checkinLastReplyDate || "",
+    checkinLastReplyAt: parsed.checkinLastReplyAt || "",
   };
 }
 
@@ -423,6 +432,11 @@ async function handleCheckinAutoReply(message) {
   if (message.channelId !== config.checkinChannelId) return false;
   if (message.author?.bot) return true;
 
+  const todayKey = localDateKey(new Date(), config.checkinDailyTimeZone);
+  if (config.checkinOncePerDay && state.checkinLastReplyDate === todayKey) {
+    return true;
+  }
+
   const cooldownKey = `${message.channelId}:${message.author.id}`;
   const now = Date.now();
   const cooldownUntil = checkinCooldowns.get(cooldownKey) || 0;
@@ -439,6 +453,12 @@ async function handleCheckinAutoReply(message) {
     content: buildCheckinReplyMessage(message),
     allowedMentions: { parse: [] },
   });
+
+  if (config.checkinOncePerDay) {
+    state.checkinLastReplyDate = todayKey;
+    state.checkinLastReplyAt = new Date().toISOString();
+    queueSave();
+  }
 
   if (config.checkinDeleteTriggerMessage) {
     await message.delete().catch((error) => {
@@ -844,6 +864,15 @@ function formatUtcYmd(date) {
     date.getUTCFullYear(),
     String(date.getUTCMonth() + 1).padStart(2, "0"),
     String(date.getUTCDate()).padStart(2, "0"),
+  ].join("-");
+}
+
+function localDateKey(date, timeZone) {
+  const parts = zonedParts(date, timeZone);
+  return [
+    parts.year,
+    String(parts.month).padStart(2, "0"),
+    String(parts.day).padStart(2, "0"),
   ].join("-");
 }
 
