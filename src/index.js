@@ -40,6 +40,7 @@ const config = {
     process.env.CHECKIN_DELETE_TRIGGER_MESSAGE,
     false,
   ),
+  checkinReplyMessage: process.env.CHECKIN_REPLY_MESSAGE || "",
 };
 
 const client = new Client({
@@ -192,7 +193,12 @@ function parseCsv(value) {
 
 function loadState(storePath) {
   if (!fs.existsSync(storePath)) {
-    return { version: 1, tickets: {}, sentReports: {} };
+    return {
+      version: 1,
+      tickets: {},
+      sentReports: {},
+      checkinReplyMessage: "",
+    };
   }
 
   const raw = fs.readFileSync(storePath, "utf8");
@@ -201,6 +207,7 @@ function loadState(storePath) {
     version: 1,
     tickets: parsed.tickets || {},
     sentReports: parsed.sentReports || {},
+    checkinReplyMessage: parsed.checkinReplyMessage || "",
   };
 }
 
@@ -428,18 +435,9 @@ async function handleCheckinAutoReply(message) {
     now + Math.max(0, config.checkinCooldownSeconds) * 1000,
   );
 
-  const content = [
-    `<@${message.author.id}> 这是版主签到表单：`,
-    config.checkinFormUrl,
-  ].join("\n");
-
-  await message.reply({
-    content,
-    allowedMentions: {
-      users: [message.author.id],
-      roles: [],
-      parse: [],
-    },
+  await message.channel.send({
+    content: buildCheckinReplyMessage(message),
+    allowedMentions: { parse: [] },
   });
 
   if (config.checkinDeleteTriggerMessage) {
@@ -451,18 +449,93 @@ async function handleCheckinAutoReply(message) {
   return true;
 }
 
+function buildCheckinReplyMessage(message) {
+  const template =
+    state.checkinReplyMessage ||
+    config.checkinReplyMessage ||
+    ["这是版主签到表单：", "{form_url}"].join("\n");
+
+  return template
+    .replaceAll("\\n", "\n")
+    .replaceAll("{form_url}", config.checkinFormUrl)
+    .replaceAll("{user}", message.author.username || "")
+    .replaceAll(
+      "{display_name}",
+      message.member?.displayName || message.author.globalName || "",
+    )
+    .trim();
+}
+
 async function handleReportCommand(message) {
   const content = message.content || "";
   if (!content.startsWith(config.commandPrefix)) return false;
   if (message.channelId !== config.reportChannelId) return true;
   if (message.author.bot) return true;
 
-  const args = content.slice(config.commandPrefix.length).trim().split(/\s+/);
+  const body = content.slice(config.commandPrefix.length).trim();
+  if (await handleCheckinMessageCommand(message, body)) return true;
+
+  const args = body.split(/\s+/);
   const requestedWeek = args.find((arg) => /^\d{4}-W\d{2}$/.test(arg));
   const week = requestedWeek || previousWeekKey(new Date(), config.timezone);
 
   await sendReportMessage(formatWeeklyReport(week));
   return true;
+}
+
+async function handleCheckinMessageCommand(message, body) {
+  const command = "checkin-message";
+  if (!body.startsWith(command)) return false;
+
+  const text = body.slice(command.length).trim();
+  if (!text) {
+    await message.reply({
+      content: [
+        "当前签到自动回复文案：",
+        "```text",
+        currentCheckinReplyTemplate(),
+        "```",
+        "",
+        "修改示例：",
+        `${config.commandPrefix} checkin-message 请点击下方链接完成今日签到：\n{form_url}`,
+        "",
+        "可用占位符：{form_url}、{user}、{display_name}",
+      ].join("\n").slice(0, 1900),
+      allowedMentions: { parse: [], repliedUser: false },
+    });
+    return true;
+  }
+
+  if (text === "reset") {
+    state.checkinReplyMessage = "";
+    queueSave();
+    await message.reply({
+      content: "已恢复默认签到自动回复文案。",
+      allowedMentions: { parse: [], repliedUser: false },
+    });
+    return true;
+  }
+
+  state.checkinReplyMessage = text;
+  queueSave();
+  await message.reply({
+    content: [
+      "已更新签到自动回复文案：",
+      "```text",
+      currentCheckinReplyTemplate(),
+      "```",
+    ].join("\n").slice(0, 1900),
+    allowedMentions: { parse: [], repliedUser: false },
+  });
+  return true;
+}
+
+function currentCheckinReplyTemplate() {
+  return (
+    state.checkinReplyMessage ||
+    config.checkinReplyMessage ||
+    ["这是版主签到表单：", "{form_url}"].join("\n")
+  );
 }
 
 async function checkWeeklyReport() {

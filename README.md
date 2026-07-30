@@ -127,6 +127,7 @@ SEND_CLOSE_LOG=true
 ```env
 CHECKIN_CHANNEL_ID=1514203944501510295
 CHECKIN_FORM_URL=https://forms.gle/wxhXhZpzUseBjeDcA
+CHECKIN_REPLY_MESSAGE=这是版主签到表单：\n{form_url}
 CHECKIN_COOLDOWN_SECONDS=60
 CHECKIN_DELETE_TRIGGER_MESSAGE=false
 ```
@@ -134,9 +135,36 @@ CHECKIN_DELETE_TRIGGER_MESSAGE=false
 效果：
 
 - 版主在 `CHECKIN_CHANNEL_ID` 频道里发送任意文字、表情或消息。
-- Heartopia 会公开回复这位版主，并发送签到表单链接。
+- Heartopia 会在频道里发送一条普通消息，不会 @ 触发的人。
 - 不会删除版主原消息。
 - 同一个人 60 秒内重复发送，不会重复触发，避免刷屏。
+
+默认回复文案可以通过 `CHECKIN_REPLY_MESSAGE` 修改。支持这些占位符：
+
+```text
+{form_url}      签到表单链接
+{user}          用户名
+{display_name} 服务器昵称
+```
+
+如果要在 Discord 里临时修改文案，可以在统计频道输入：
+
+```text
+!modmail-stats checkin-message 请点击下方链接完成今日签到：
+{form_url}
+```
+
+查看当前文案：
+
+```text
+!modmail-stats checkin-message
+```
+
+恢复默认文案：
+
+```text
+!modmail-stats checkin-message reset
+```
 
 机器人需要在这个签到频道拥有：
 
