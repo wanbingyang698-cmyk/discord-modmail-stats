@@ -1,13 +1,14 @@
 {
   "name": "discord-modmail-stats",
-  "version": "1.3.0",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
-  "description": "Discord Modmail admin reply stats with weekly reports and check-in form auto replies.",
+  "description": "Discord Modmail admin reply stats, check-in replies, and scheduled notices.",
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "check": "node --check src/index.js"
+    "analyze": "node scripts/analyze-channel.js",
+    "check": "node --check src/index.js && node --check scripts/analyze-channel.js"
   },
   "engines": {
     "node": ">=20"

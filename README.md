@@ -179,6 +179,141 @@ CHECKIN_DELETE_TRIGGER_MESSAGE=false
 
 如果以后把 `CHECKIN_DELETE_TRIGGER_MESSAGE` 改成 `true`，还需要给机器人“管理消息”权限。
 
+## 频道舆情分析导出
+
+机器人可以手动抓取某个 Discord 频道在指定时间范围内的消息，并在终端显示分析结果，同时生成本地文件。这个功能不会向任何 Discord 频道发送消息。
+
+本次需求可以这样运行：
+
+```sh
+npm run analyze -- --channel 1460985755529773301 --from "2026-08-01 00:00" --to "2026-08-03"
+```
+
+时间按 UTC+8 解析。`--to "2026-08-03"` 没有写具体时间时，会自动理解为 `2026-08-03 23:59:59`。
+
+生成文件默认保存在：
+
+```text
+reports/
+```
+
+会生成两类文件：
+
+- `*-report.md`：舆情分析报告，包含高频关键词、用户情绪、讨论最多的话题分类和建议。
+- `*-messages.txt`：原始消息文本导出，方便后续人工复核。
+
+也可以把配置写进 `.env`：
+
+```env
+ANALYSIS_CHANNEL_ID=1460985755529773301
+ANALYSIS_FROM=2026-08-01 00:00
+ANALYSIS_TO=2026-08-03
+ANALYSIS_TIMEZONE=Asia/Shanghai
+ANALYSIS_MAX_MESSAGES=10000
+ANALYSIS_INCLUDE_BOTS=false
+ANALYSIS_SAVE_RAW=true
+ANALYSIS_OUTPUT_DIR=reports
+```
+
+然后直接运行：
+
+```sh
+npm run analyze
+```
+
+注意：
+
+- Heartopia bot 必须能看到这个频道，并拥有“查看频道”和“读取消息历史”权限。
+- Developer Portal 里需要开启 Message Content Intent，否则抓到的正文可能为空。
+- 当前分析是本地关键词和情绪词典初筛，不调用外部 AI。适合快速看趋势；如果需要更细的人工化分析，可以把生成的报告或原始消息文件发给我继续分析。
+
+## 定时通知发送
+
+机器人可以在指定控制频道里接收 `!notice` 指令，按 UTC+8 定时发送通知到你指定的频道。
+
+默认配置：
+
+```env
+NOTICE_CONTROL_CHANNEL_ID=1526483819664904293
+NOTICE_COMMAND_PREFIX=!notice
+NOTICE_TIMEZONE=Asia/Shanghai
+NOTICE_CHECK_INTERVAL_SECONDS=30
+```
+
+如果不填写 `NOTICE_CONTROL_CHANNEL_ID`，默认使用 `REPORT_CHANNEL_ID` 作为控制频道。
+
+### 创建定时通知
+
+在控制频道发送：
+
+```text
+!notice schedule
+time: 2026-08-01 20:00
+channel: <#目标频道ID>
+type: text
+roles: 角色ID1, 角色ID2
+image: https://example.com/image.png
+content:
+这里写通知正文。
+可以写很多行，机器人会自动拆分成多条 Discord 消息。
+```
+
+字段说明：
+
+- `time`：发送时间，按 UTC+8 解析，格式为 `YYYY-MM-DD HH:mm`。
+- `channel`：目标 Discord 频道，可以填频道提及 `<#频道ID>` 或频道 ID。
+- `type`：`text` 普通文本，或 `embed` 嵌入消息。
+- `roles`：要 @ 的身份组，建议填角色 ID，多个用逗号隔开。
+- `image`：图片链接。也可以把图片直接附在这条指令消息里。
+- `content`：通知正文，可以多行。
+
+如果正文非常长，Discord 无法让你在一条指令里粘贴完整内容。可以把正文保存为 `.txt` 或 `.md` 文件，和这条指令消息一起上传，机器人会读取文件内容作为通知正文并自动拆分发送。
+
+### Embed 通知
+
+```text
+!notice schedule
+time: 2026-08-01 20:00
+channel: <#目标频道ID>
+type: embed
+title: 通知标题
+roles: 角色ID1
+image: https://example.com/banner.png
+content:
+这里写 Embed 正文。
+```
+
+### 其他指令
+
+```text
+!notice help
+!notice list
+!notice preview 通知ID
+!notice cancel 通知ID
+```
+
+如果要立刻发送一次通知，可以把 `schedule` 改成 `send`，其他格式保持一致：
+
+```text
+!notice send
+channel: <#目标频道ID>
+type: text
+roles: 角色ID1
+content:
+这里写要立刻发送的通知。
+```
+
+### 权限要求
+
+机器人需要在控制频道和目标频道拥有：
+
+- 查看频道
+- 读取消息历史
+- 发送消息
+- Embed 链接（如果使用 `type: embed`）
+
+如果通知需要 @ 身份组，机器人还需要能够提及这些身份组。最稳妥的做法是给机器人“提及 @everyone、@here 和所有身份组”的权限，或把对应身份组设置为允许被提及。
+
 ## 注意事项
 
 机器人只能统计它在线期间看到的消息。已删除的工单频道无法补历史数据。
